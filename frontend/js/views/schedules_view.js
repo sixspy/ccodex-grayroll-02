@@ -28,6 +28,7 @@ export const SchedulesView = {
     <div class="panel span-5">
       <h2>比例爬坡计划</h2>
       <p class="hint">本地调度草案；推进下一步会写入正式百分比规则。</p>
+      <p class="hint" style="color:#b54708">grayroll-02 封板：单次推进比例增量不得超过 20 个百分点；超步整笔拒写，正式规则零增、游标不动。</p>
       <div class="field"><label>开关ID</label><input type="number" v-model.number="form.flag_id" /></div>
       <div class="field"><label>环境ID</label><input type="number" v-model.number="form.env_id" /></div>
       <div class="field"><label>步骤 JSON</label><textarea v-model="form.steps_json" rows="4"></textarea></div>
@@ -39,11 +40,12 @@ export const SchedulesView = {
     <div class="panel span-7">
       <h2>计划列表</h2>
       <table>
-        <thead><tr><th>ID</th><th>开关</th><th>环境</th><th>状态</th><th>游标</th><th></th></tr></thead>
+        <thead><tr><th>ID</th><th>开关</th><th>环境</th><th>状态</th><th>游标</th><th>爬坡步骤</th><th></th></tr></thead>
         <tbody>
           <tr v-for="it in items" :key="it.id">
             <td>{{ it.id }}</td><td>{{ it.flag_key }}</td><td>{{ it.env_code }}</td>
             <td>{{ it.status }}</td><td>{{ it.cursor_step }}</td>
+            <td><code style="font-size:12px">{{ it.steps_json }}</code></td>
             <td><button class="btn secondary" v-if="it.status==='planned' || it.status==='running'" @click="applyNext(it.id)">推进一步</button></td>
           </tr>
         </tbody>

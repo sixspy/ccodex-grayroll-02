@@ -29,7 +29,7 @@ export const RulesView = {
   <div class="grid">
     <div class="panel span-5">
       <h2>影子绑定（乙）</h2>
-      <p class="hint">只写影子草案，正式规则升正前零改。</p>
+      <p class="hint">只写影子草案，正式规则升正前零改；未升正草案在对比页判漂移，不允许假绿。</p>
       <div class="field"><label>开关ID</label><input type="number" v-model.number="form.flag_id" /></div>
       <div class="field"><label>环境ID</label><input type="number" v-model.number="form.env_id" /></div>
       <div class="field"><label>类型</label>

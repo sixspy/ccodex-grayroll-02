@@ -22,7 +22,24 @@ export const CompareView = {
       <div class="field"><label>环境ID</label><input type="number" v-model.number="envId" /></div>
       <button class="btn secondary" @click="reload">对比</button>
       <div class="err" v-if="err">{{ err }}</div>
-      <pre v-if="detail" style="margin-top:0.8rem">{{ detail }}</pre>
+      <div v-if="detail" style="margin-top:0.8rem">
+        <p>
+          <strong>对齐裁决：</strong>
+          <span class="pill" :class="{'danger': !detail.aligned}">
+            {{ detail.aligned ? '已对齐（真绿）' : '漂移/有未升正草案（禁假绿）' }}
+          </span>
+        </p>
+        <p class="hint" v-if="detail.has_pending_shadow">存在 open 影子草案，升正前一律不判已对齐。</p>
+        <table v-if="detail.diffs.length">
+          <thead><tr><th>字段</th><th>正式</th><th>影子</th></tr></thead>
+          <tbody>
+            <tr v-for="d in detail.diffs" :key="d.field">
+              <td>{{ d.field }}</td><td>{{ d.official }}</td><td>{{ d.shadow }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <pre style="margin-top:0.8rem">{{ detail }}</pre>
+      </div>
     </div>
     <div class="panel span-7">
       <h2>环境矩阵</h2>
