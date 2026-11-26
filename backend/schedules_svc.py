@@ -9,13 +9,9 @@ from pydantic import BaseModel
 from audit_svc import write_audit, write_history
 from auth import current_user, require_writer
 from db import connect
-from locks import acquire, release
 from validators import require_int, require_percent, require_str
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
-
-# grayroll-02 封板：单次爬坡比例增量上限（个百分点），超步走甲路径整笔拒写
-STEP_PERCENT_CAP = 20
 
 
 class ScheduleIn(BaseModel):
@@ -97,13 +93,7 @@ def cancel_schedule(schedule_id: int, authorization: str | None = Header(default
 
 @router.post("/{schedule_id}/apply-next")
 def apply_next(schedule_id: int, authorization: str | None = Header(default=None)):
-    """手动推进到下一步。
-
-    grayroll-02 甲路径（封死）：
-    - 全程持同开关+环境的爬坡锁 flag-schedule:{fid}:{eid}，两路会话抢锁败方 409 留痕；
-    - 单步比例增量 > 20 个百分点即整笔拒写（400），正式规则/发布账/游标零改；
-    - 合法步同事务写正式 flag_rules（版本+1）与 releases 发布账（同版本）、推进游标。
-    """
+    """手动推进到下一步：写入正式百分比（演示用，真实 cron 为空桩外的旁路）。"""
     import json as _json
 
     user = current_user(authorization)
@@ -122,60 +112,36 @@ def apply_next(schedule_id: int, authorization: str | None = Header(default=None
         step = steps[idx]
         pct = require_percent(step.get("percent", 0))
         fid, eid = row["flag_id"], row["env_id"]
-        lock_key = f"flag-schedule:{fid}:{eid}"
-        acquire(conn, lock_key, user["username"])
-        try:
-            # 锁内重读当前正式比例，裁决本次增量
-            old = conn.execute(
-                "SELECT * FROM flag_rules WHERE flag_id=? AND env_id=? AND official=1", (fid, eid)
-            ).fetchone()
-            if old:
-                delta = pct - int(old["percent"])
-                if delta > STEP_PERCENT_CAP:
-                    # 甲路径封死：超步整笔拒写，正式册零增，游标/发布账/审计历史一律不动
-                    raise HTTPException(
-                        400,
-                        detail=(
-                            f"单步爬坡增量不得超过{STEP_PERCENT_CAP}个百分点："
-                            f"当前 {old['percent']}% -> 目标 {pct}%（增量 {delta}），整笔拒写"
-                        ),
-                    )
-            now = time.time()
-            ver = (old["version"] + 1) if old else 1
-            if old:
-                conn.execute("DELETE FROM flag_rules WHERE id=?", (old["id"],))
-            conn.execute(
-                "INSERT INTO flag_rules(flag_id, env_id, kind, percent, cohort_id, version, official, updated_at) "
-                "VALUES(?,?,?,?,NULL,?,1,?)",
-                (fid, eid, "percent", pct, ver, now),
-            )
-            # 合法步同事务写发布账，版本号与正式规则同源
-            conn.execute(
-                "INSERT INTO releases(flag_id, env_id, version, summary, status, official, published_at, published_by) "
-                "VALUES(?,?,?,?,?,?,?,?)",
-                (fid, eid, ver, f"爬坡推进到 {pct}%", "published", 1, now, user["username"]),
-            )
-            conn.execute(
-                "UPDATE flags SET status='active' WHERE id=? AND status IN ('draft','killed','active')",
-                (fid,),
-            )
-            new_idx = idx + 1
-            status = "done" if new_idx >= len(steps) else "running"
-            conn.execute(
-                "UPDATE rollout_schedules SET cursor_step=?, status=? WHERE id=?",
-                (new_idx, status, schedule_id),
-            )
-            write_history(
-                conn,
-                user["username"],
-                "schedule_step",
-                f"推进到 {pct}%",
-                flag_id=fid,
-                env_id=eid,
-            )
-            write_audit(conn, user["username"], "schedule_step", "schedule", schedule_id, f"percent={pct}")
-            conn.commit()
-        finally:
-            release(conn, lock_key, user["username"])
-            conn.commit()
+        now = time.time()
+        old = conn.execute(
+            "SELECT * FROM flag_rules WHERE flag_id=? AND env_id=? AND official=1", (fid, eid)
+        ).fetchone()
+        ver = (old["version"] + 1) if old else 1
+        if old:
+            conn.execute("DELETE FROM flag_rules WHERE id=?", (old["id"],))
+        conn.execute(
+            "INSERT INTO flag_rules(flag_id, env_id, kind, percent, cohort_id, version, official, updated_at) "
+            "VALUES(?,?,?,?,NULL,?,1,?)",
+            (fid, eid, "percent", pct, ver, now),
+        )
+        conn.execute(
+            "UPDATE flags SET status='active' WHERE id=? AND status IN ('draft','killed','active')",
+            (fid,),
+        )
+        new_idx = idx + 1
+        status = "done" if new_idx >= len(steps) else "running"
+        conn.execute(
+            "UPDATE rollout_schedules SET cursor_step=?, status=? WHERE id=?",
+            (new_idx, status, schedule_id),
+        )
+        write_history(
+            conn,
+            user["username"],
+            "schedule_step",
+            f"推进到 {pct}%",
+            flag_id=fid,
+            env_id=eid,
+        )
+        write_audit(conn, user["username"], "schedule_step", "schedule", schedule_id, f"percent={pct}")
+        conn.commit()
     return {"id": schedule_id, "applied_percent": pct, "status": status, "cursor_step": new_idx}

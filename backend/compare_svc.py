@@ -51,32 +51,12 @@ def compare_flag_env(flag_id: int, env_id: int, authorization: str | None = Head
                 (fid, eid),
             ).fetchall()
         ]
-    # grayroll-02：未升正影子（规则/发布/熔断任一）一律判漂移，禁止把草案当已对齐的假绿。
-    pending = rule_shadows or release_shadows or kill_shadows
     diffs = []
-    seen_fields = set()
-
-    def _collect(shadow: dict) -> None:
-        # 无正式规则时，open 草案本身即漂移；有正式规则时逐字段比对
+    if official and release_shadows:
+        sh = release_shadows[0]
         for field in ("kind", "percent", "cohort_id"):
-            if field in seen_fields:
-                continue
-            if not official or official[field] != shadow.get(field):
-                diffs.append(
-                    {
-                        "field": field,
-                        "official": official[field] if official else None,
-                        "shadow": shadow.get(field),
-                    }
-                )
-                seen_fields.add(field)
-
-    # rule_shadows 与 release_shadows 都须参与漂移裁决（原来只比 release_shadows）
-    for sh in rule_shadows:
-        _collect(sh)
-    for sh in release_shadows:
-        _collect(sh)
-    aligned = (not pending) and (not diffs)
+            if official[field] != sh.get(field):
+                diffs.append({"field": field, "official": official[field], "shadow": sh.get(field)})
     return {
         "flag": dict(fl),
         "env": dict(env),
@@ -86,8 +66,7 @@ def compare_flag_env(flag_id: int, env_id: int, authorization: str | None = Head
         "open_kill_shadows": kill_shadows,
         "recent_releases": recent_releases,
         "diffs": diffs,
-        "has_pending_shadow": bool(pending),
-        "aligned": aligned,
+        "has_pending_shadow": bool(rule_shadows or release_shadows or kill_shadows),
     }
 
 
